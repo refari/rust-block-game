@@ -1,0 +1,3 @@
+[submodule "lodtree"]
+	path = lodtree
+	url = git@github.com:Dimev/lodtree.git
