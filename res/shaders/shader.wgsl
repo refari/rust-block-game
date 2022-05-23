@@ -41,6 +41,6 @@ var sam: sampler;
 fn fs_main(v_in: VertexOutput) -> [[location(0)]] vec4<f32> {
     var tex: vec4<f32> = textureSample(tex, sam, v_in.texcoord);
 
-    tex = vec4<f32>(tex.rgb * (dot(normalize(v_in.normal), vec3<f32>(0.5, 0.75, 0.5))*0.25 + 0.75), 1.0);
+    tex = vec4<f32>(tex.rgb * (dot(normalize(v_in.normal), vec3<f32>(0.5, 0.75, 0.5))*0.5 + 0.5), 1.0);
     return tex;
 }

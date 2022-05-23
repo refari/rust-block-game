@@ -1,6 +1,5 @@
-use image::GenericImageView;
+use image::{DynamicImage, GenericImage, GenericImageView};
 use anyhow::*;
-use wgpu::{BindGroupLayout, Device, SurfaceConfiguration, TextureUsages};
 use std::default::Default;
 use std::{
     path::Path,
@@ -9,6 +8,7 @@ use std::{
 use std::collections::HashMap;
 use std::io::Read;
 use bytemuck::from_bytes;
+use cgmath::num_traits::ToPrimitive;
 use crate::render::state::State;
 
 pub struct TextureLoadDescriptor {
@@ -46,26 +46,96 @@ pub struct Texture {
 }
 
 // Each corner of a specific texture in the texture atlas.
-struct AtlasTexCoords {
-    bl: [f32; 2],
-    br: [f32; 2],
-    tl: [f32; 2],
-    tr: [f32; 2],
+#[derive(Debug)]
+pub struct AtlasTexCoords {
+    pub bl: [f32; 2],
+    pub br: [f32; 2],
+    pub tl: [f32; 2],
+    pub tr: [f32; 2],
 }
 
 pub struct TextureAtlas {
-    atlas: Texture,
-    textures: Vec<Texture>,
+    texture: Texture,
+    atlas: DynamicImage,
+    textures: Vec<(String, DynamicImage)>,
+    width: usize,
+    height: usize,
+}
+
+fn best_packing_size(num: usize) -> (u32, u32) {
+    let square = num.to_f32().unwrap().sqrt().ceil().to_u32().unwrap();
+    (square, square)
 }
 
 impl TextureAtlas {
-    pub fn new(textures: Vec<Texture>) -> Self {
-        Self
+    pub fn new(state: &State, textures: Vec<(String, DynamicImage)>) -> Result<Self> {
+        let (w, h) = best_packing_size(textures.len());
+        println!("Best size for {} textures is {}, {}", textures.len(), w, h);
+
+        let mut atlas = DynamicImage::new_rgba8(w*16, h*16);
+        'outer: for x in 0..w {
+            for y in 0..h {
+                // stop adding textures once we run out of them
+                let i = (x*h+y) as usize;
+                if i >= textures.len() {
+                    break 'outer
+                }
+
+                let mut view = atlas.sub_image(x*16, y*16, w*16, h*16);
+                view.copy_from(&textures[i].1, 0, 0).expect("Failed to add image!");
+                println!("Adding texture {} at coords ({}, {}) to ({}, {})", textures[i].0, (x as f32)/(w as f32), (y as f32)/(h as f32), (x as f32)/(w as f32)+1.0/(w as f32), (y as f32)/(h as f32)+1.0/(h as f32));
+            }
+        }
+
+        Ok(Self {
+            textures,
+            texture: Texture::from_image(state, &atlas, Some("atlas")).expect("Failed to make atlas texture"),
+            atlas,
+            width: w as usize,
+            height: h as usize,
+        })
+    }
+
+    pub fn coords_of(&self, id: &String) -> Result<AtlasTexCoords> {
+        for (i, tex) in self.textures.iter().enumerate() {
+            if tex.0 == *id {
+                let y = (i % self.width) as f32 / self.width as f32;
+                let x = ((i - y as usize)/self.width) as f32 / self.height as f32;
+
+                let sy = 1.0/self.width as f32;
+                let sx = 1.0/self.height as f32;
+
+
+                return std::result::Result::Ok(AtlasTexCoords {
+                    tl: [x,    y   ],
+                    tr: [x+sx, y   ],
+                    bl: [x,    y+sy],
+                    br: [x+sx, y+sy],
+                })
+            }
+        }
+
+        println!("Tried to find nonexistent texture!");
+
+        Err(anyhow!("This atlas doesn't have this texture"))
+    }
+
+    pub fn borrow_atlas_texture(&self) -> &Texture {
+        &self.texture
     }
 }
 
 impl Texture {
     pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
+    pub fn image_from_png(path: Box<Path>) -> Result<DynamicImage> {
+        let mut file = fs::File::open(path)?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        debug_assert!(!bytes.is_empty(), "Byte buffer was empty");
+
+        Ok(image::load_from_memory(&bytes)?)
+    }
 
     pub fn from_png(
         state: &State,
@@ -91,7 +161,7 @@ impl Texture {
 
     fn from_image(
         state: &State,
-        img: &image::DynamicImage,
+        img: &DynamicImage,
         label: Option<&str>
     ) -> Result<Self> {
         let rgba = img.as_rgba8().unwrap();
@@ -164,7 +234,7 @@ impl Texture {
         Ok(Self { texture, view, sampler, bind_group: Some(bind_group) })
     }
 
-    pub fn create_depth_texture(device: &Device, config: &SurfaceConfiguration, label: &str) -> Self {
+    pub fn create_depth_texture(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration, label: &str) -> Self {
         let size = wgpu::Extent3d { // 2.
             width: config.width,
             height: config.height,

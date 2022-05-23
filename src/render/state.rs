@@ -5,9 +5,8 @@ use std::mem::size_of;
 use std::path::Path;
 use block_mesh::{greedy_quads, GreedyQuadsBuffer, RIGHT_HANDED_Y_UP_CONFIG};
 use block_mesh::ndshape::{ConstShape, ConstShape3u32};
-use cgmath::num_traits::ToPrimitive;
-use cgmath::Vector3;
-use wgpu::{BindGroup, Buffer, BufferAddress, BufferUsages, DepthStencilState, include_wgsl};
+use image::DynamicImage;
+use wgpu::include_wgsl;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use winit::{
     event::*,
@@ -15,7 +14,7 @@ use winit::{
 };
 use winit::dpi::PhysicalSize;
 
-use crate::render::texture::{Texture, TextureRegistry};
+use crate::render::texture::{Texture, TextureAtlas, TextureRegistry};
 use crate::player::camera::{Camera, CameraUniform};
 use crate::player::{Player, PlayerManager};
 
@@ -34,19 +33,20 @@ pub struct State {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
-    pub size: winit::dpi::PhysicalSize<u32>,
+    pub size: PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
     depth_texture: Texture,
     vertex_buffer: Option<wgpu::Buffer>,
     index_buffer: Option<wgpu::Buffer>,
     num_vertices: Option<u32>,
     player: Option<Player>,
-    camera_bind_group: BindGroup,
-    camera_buffer: Buffer,
+    camera_bind_group: wgpu::BindGroup,
+    camera_buffer: wgpu::Buffer,
     window_size: PhysicalSize<u32>,
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
     pub camera_bind_group_layout: wgpu::BindGroupLayout,
-    textures: TextureRegistry,
+    // textures: TextureRegistry,
+    textures: Option<TextureAtlas>,
     blocks: BlockRegistry,
     test_chunk: Option<Chunk>,
 }
@@ -170,7 +170,7 @@ impl State {
         let camera_buffer = device.create_buffer(
             &wgpu::BufferDescriptor {
                 label: Some("Camera Buffer"),
-                size: size_of::<CameraUniform>() as BufferAddress,
+                size: size_of::<CameraUniform>() as wgpu::BufferAddress,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false
             }
@@ -281,7 +281,7 @@ impl State {
             camera_buffer,
             texture_bind_group_layout,
             camera_bind_group_layout,
-            textures: TextureRegistry::default(),
+            textures: None,
             blocks: BlockRegistry::default(),
             test_chunk: None,
         }
@@ -290,13 +290,23 @@ impl State {
     pub fn init(&mut self) {
         self.player = Some(Player::new(self.window_size, self));
 
+        let textures: Vec<(String, DynamicImage)> = vec![
+            (
+                "grass_top".into(),
+                Texture::image_from_png(Path::new("res/images/grass/grass_top.png").into()).unwrap()
+            ),
+            (
+                "grass_bottom".into(),
+                Texture::image_from_png(Path::new("res/images/grass/grass_bottom.png").into()).unwrap()
+            ),
+            (
+                "grass_side".into(),
+                Texture::image_from_png(Path::new("res/images/grass/grass_side.png").into()).unwrap()
+            ),
+        ];
 
-        let grass_id = "grass";
-
-        let texture = Texture::from_png(self, Path::new("res/images/grass/grass_top.png").into(), grass_id)
-            .expect("Couldn't create texture");
-
-        self.textures.add_texture(grass_id, texture);
+        let atlas = TextureAtlas::new(self, textures).expect("Couldn't create atlas");
+        self.textures = Some(atlas);
 
         let air = BlockDescriptor::new(
             "air",
@@ -304,34 +314,52 @@ impl State {
             true,
             None,
             None,
-            None,
+            [None; 4],
         );
 
-        let block = BlockDescriptor::new(
-            "block",
+        let grass = BlockDescriptor::new(
+            "grass",
             false,
             false,
-            Some(grass_id),
-            Some(grass_id),
-            Some([grass_id; 4]),
+            Some("grass_top"),
+            Some("grass_bottom"),
+            [Some("grass_side"); 4],
+        );
+
+        let dirt = BlockDescriptor::new(
+            "dirt",
+            false,
+            false,
+            Some("grass_bottom"),
+            Some("grass_bottom"),
+            [Some("grass_bottom"); 4],
         );
 
 
-        self.blocks.add_block("air", air);
-        self.blocks.add_block("block", block);
+        self.blocks.add_block(air);
+        self.blocks.add_block(grass);
+        self.blocks.add_block(dirt);
 
         let mut test_chunk = Chunk::new();
 
         let mut num_blocks = 0;
 
+        fn in_sphere(x: usize, y: usize, z: usize, r: f32) -> bool {
+            let radius = (((x as i32 - 8).pow(2) + (y as i32 - 8).pow(2) + (z as i32 - 8).pow(2)) as f32)
+                .sqrt();
+            radius < r
+        }
+
         for x in 0..CHUNK_WIDTH {
             for y in 0..CHUNK_WIDTH {
                 for z in 0..CHUNK_WIDTH {
-                    let radius = (((x as i32 - 8).pow(2) + (y as i32 - 8).pow(2) + (z as i32 - 8).pow(2)) as f32)
-                        .sqrt();
-                    test_chunk.set_block(x,y,z, if radius < 7.0 {
+                    test_chunk.set_block(x,y,z, if in_sphere(x,y,z, 7.0) {
                         num_blocks += 1;
-                        self.blocks.block("block")
+                        if in_sphere(x,y+1,z, 7.0) {
+                            self.blocks.block("dirt")
+                        } else {
+                            self.blocks.block("grass")
+                        }
                     } else {
                         self.blocks.block("air")
                     });
@@ -342,11 +370,10 @@ impl State {
         // test_chunk.set_block(8,8,8, self.blocks.block("block"));
 
         println!("Added {} solid blocks.", num_blocks);
-        println!("Air: {}\n Block: {}", self.blocks.block("air").desc_index, self.blocks.block("block").desc_index);
 
         // println!("{} quads", buffer.quads.num_quads());
 
-        let (vertices, indices) = greedy(&test_chunk);
+        let (vertices, indices) = greedy(&test_chunk, self.textures.as_ref().unwrap(), &self.blocks);
 
         let num_indices = indices.len();
         let num_vertices = vertices.len();
@@ -358,13 +385,13 @@ impl State {
         self.vertex_buffer = Some(self.device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Vertex Buffer"),
             contents: bytemuck::cast_slice(vertices.as_slice()),
-            usage: BufferUsages::VERTEX,
+            usage: wgpu::BufferUsages::VERTEX,
         }));
 
         self.index_buffer = Some(self.device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Index Buffer"),
             contents: bytemuck::cast_slice(indices.as_slice()),
-            usage: BufferUsages::INDEX,
+            usage: wgpu::BufferUsages::INDEX,
         }));
         
         println!("{} vertices", num_vertices);
@@ -433,7 +460,7 @@ impl State {
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(
                 0,
-                self.textures.borrow_texture("grass").expect("Missing texture").bind_group.as_ref().unwrap(),
+                self.textures.as_ref().unwrap().borrow_atlas_texture().bind_group.as_ref().unwrap(),
                 &[]
             );
             render_pass.set_bind_group(1, &self.camera_bind_group, &[]);

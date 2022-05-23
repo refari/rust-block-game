@@ -22,7 +22,7 @@ pub struct BlockRegistry {
 
 impl BlockRegistry {
 
-    pub fn add_block(&mut self, id: &str, block: BlockDescriptor) {
+    pub fn add_block(&mut self, block: BlockDescriptor) {
         let max = self.keys.values().max();
         let next = if max.is_none() {
             0
@@ -53,12 +53,12 @@ impl BlockRegistry {
 }
 
 pub struct BlockDescriptor {
-    id: String,
-    invisible: bool,
-    transparent: bool,
-    top_texture: Option<String>,
-    bottom_texture: Option<String>,
-    side_textures: Option<[String; 4]>,
+    pub id: String,
+    pub invisible: bool,
+    pub transparent: bool,
+    pub top_texture: Option<String>,
+    pub bottom_texture: Option<String>,
+    pub side_textures: [Option<String>; 4],
 }
 
 impl BlockDescriptor {
@@ -68,7 +68,7 @@ impl BlockDescriptor {
         transparent: bool,
         top_texture: Option<&str>,
         bottom_texture: Option<&str>,
-        _side_textures: Option<[&str; 4]>
+        _side_textures: [Option<&str>; 4]
     ) -> Self {
 
         Self {
@@ -77,7 +77,12 @@ impl BlockDescriptor {
             transparent,
             top_texture: top_texture.map(|tex| { tex.to_string() }),
             bottom_texture: bottom_texture.map(|tex| { tex.to_string() }),
-            side_textures: _side_textures.map(|_tex| { _tex.map(|tex| {tex.to_string()}) })
+            side_textures: [
+                _side_textures[0].map(|tex| {tex.to_string()}),
+                _side_textures[1].map(|tex| {tex.to_string()}),
+                _side_textures[2].map(|tex| {tex.to_string()}),
+                _side_textures[3].map(|tex| {tex.to_string()}),
+            ]
         }
     }
 }
