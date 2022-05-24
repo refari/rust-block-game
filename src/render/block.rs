@@ -1,11 +1,8 @@
 // block.rs
 // Block utilities and structs
 use std::collections::HashMap;
-use std::hash::Hash;
-use block_mesh::{MergeVoxel, Voxel};
 use cgmath::Vector3;
-use crate::render::texture::Texture;
-use crate::render::types::{Face, Vertex};
+use crate::render::types::Vertex;
 
 const BLOCK_FACES_DIRS: [Vector3<f32>; 6] = [
     Vector3::new(1.0, 0.0, 0.0),
@@ -101,21 +98,3 @@ pub const AIR: Block = Block {
     invisible: true,
     transparent: true,
 };
-
-impl Voxel for Block {
-    fn is_empty(&self) -> bool {
-        self.invisible
-    }
-
-    fn is_opaque(&self) -> bool {
-        !self.transparent
-    }
-}
-
-impl MergeVoxel for Block {
-    type MergeValue = Self;
-
-    fn merge_value(&self) -> Self::MergeValue {
-        *self
-    }
-}

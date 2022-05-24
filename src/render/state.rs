@@ -2,13 +2,9 @@
 // Application state
 extern crate winit;
 
-use std::borrow::Borrow;
 use std::mem::size_of;
 use std::path::Path;
-use block_mesh::{greedy_quads, GreedyQuadsBuffer, RIGHT_HANDED_Y_UP_CONFIG};
-use block_mesh::ndshape::{ConstShape, ConstShape3u32};
 use image::DynamicImage;
-use wgpu::include_wgsl;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use winit::{
     event::*,
@@ -21,11 +17,12 @@ use crate::player::camera::{Camera, CameraUniform};
 use crate::player::{Player, PlayerManager};
 
 use crate::render::{
-    types::{Face, Vertex},
+    types::{Vertex},
 };
 use crate::render::block::{Block, BlockDescriptor, BlockRegistry};
 
 use rayon::prelude::*;
+use crate::core::resource::{ImageResource, Resource, ResourceManager, ResType, ShaderResource};
 
 use crate::world::{Chunk, CHUNK_WIDTH};
 use crate::world::mesher::greedy;
@@ -48,6 +45,7 @@ pub struct State {
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
     pub camera_bind_group_layout: wgpu::BindGroupLayout,
     // textures: TextureRegistry,
+    resources: ResourceManager,
     textures: Option<TextureAtlas>,
     blocks: BlockRegistry,
     test_chunk: Option<Chunk>,
@@ -57,7 +55,7 @@ impl State {
     // Creating some of the WGPU types requires async code
     pub async fn new(window: &Window) -> Self {
         let size = window.inner_size();
-        let instance = wgpu::Instance::new(wgpu::Backends::GL);
+        let instance = wgpu::Instance::new(wgpu::Backends::GL | wgpu::Backends::METAL);
         let surface = unsafe { instance.create_surface(window) };
         let adapter = instance.request_adapter(
             &wgpu::RequestAdapterOptions {
@@ -86,44 +84,20 @@ impl State {
 
         surface.configure(&device, &config);
 
-        let shader = device.create_shader_module(
-            &wgpu::ShaderModuleDescriptor {
-                label: Some("Shader"),
-                source: wgpu::ShaderSource::Wgsl(
-                    include_str!("../../res/shaders/shader.wgsl").into()
-                )
-            }
+        let mut resources = ResourceManager::new();
+
+        resources.add_resource(
+            String::from("Main Shader"),
+            ResType::Shader,
+            Box::new(ShaderResource::new(
+                String::from("Main Shader"),
+                Path::new("res/shaders/shader.wgsl").into()
+            ))
         );
 
-        // let vertices = Face::plane(
-        //     Vector3::new(0.0, 0.0, 0.0),
-        //     Vector3::new(-1.0, 0.1, -1.0),
-        //     1.0,
-        // ).unwrap();
-
-
-
-        // let vertex_buffer = device.create_buffer_init(
-        //     &wgpu::util::BufferInitDescriptor {
-        //         label: Some("Vertex Buffer"),
-        //         contents: bytemuck::cast_slice(
-        //             vertices.vertices.borrow()
-        //         ),
-        //         usage: wgpu::BufferUsages::VERTEX,
-        //     }
-        // );
-        //
-        // let index_buffer = device.create_buffer_init(
-        //     &wgpu::util::BufferInitDescriptor {
-        //         label: Some("Index Buffer"),
-        //         contents: bytemuck::cast_slice(
-        //             vertices.indices.borrow()
-        //         ),
-        //         usage: wgpu::BufferUsages::INDEX,
-        //     }
-        // );
-
-
+        let shader = resources.get_shader("Main Shader")
+            .expect("Couldn't get shader")
+            .make_module(&device);
 
         let texture_bind_group_layout = device.create_bind_group_layout(
             &wgpu::BindGroupLayoutDescriptor {
@@ -283,6 +257,7 @@ impl State {
             camera_buffer,
             texture_bind_group_layout,
             camera_bind_group_layout,
+            resources,
             textures: None,
             blocks: BlockRegistry::default(),
             test_chunk: None,
@@ -292,22 +267,65 @@ impl State {
     pub fn init(&mut self) {
         self.player = Some(Player::new(self.window_size, self));
 
-        let textures: Vec<(String, DynamicImage)> = vec![
-            (
-                "grass_top".into(),
-                Texture::image_from_png(Path::new("res/images/grass/grass_top.png").into()).unwrap()
-            ),
-            (
-                "grass_bottom".into(),
-                Texture::image_from_png(Path::new("res/images/grass/grass_bottom.png").into()).unwrap()
-            ),
-            (
-                "grass_side".into(),
-                Texture::image_from_png(Path::new("res/images/grass/grass_side.png").into()).unwrap()
-            ),
-        ];
+        // let textures: Vec<(String, DynamicImage)> = vec![
+        //     (
+        //         "grass_top".into(),
+        //         Texture::image_from_png(Path::new("res/images/grass/grass_top.png").into()).unwrap()
+        //     ),
+        //     (
+        //         "grass_bottom".into(),
+        //         Texture::image_from_png(Path::new("res/images/grass/grass_bottom.png").into()).unwrap()
+        //     ),
+        //     (
+        //         "grass_side".into(),
+        //         Texture::image_from_png(Path::new("res/images/grass/grass_side.png").into()).unwrap()
+        //     ),
+        // ];
 
-        let atlas = TextureAtlas::new(self, textures).expect("Couldn't create atlas");
+        self.resources.add_resource(
+            String::from("^terrain_grass_top"),
+            ResType::Image,
+            Box::new(
+                ImageResource::new(
+                    String::from("grass_top"),
+                    Path::new("res/images/grass/grass_top.png").into()
+                )
+            )
+        );
+
+        self.resources.add_resource(
+            String::from("^terrain_grass_bottom"),
+            ResType::Image,
+            Box::new(
+                ImageResource::new(
+                    String::from("grass_bottom"),
+                    Path::new("res/images/grass/grass_bottom.png").into()
+                )
+            )
+        );
+
+        self.resources.add_resource(
+            String::from("^terrain_grass_side"),
+            ResType::Image,
+            Box::new(
+                ImageResource::new(
+                    String::from("grass_side"),
+                    Path::new("res/images/grass/grass_side.png").into()
+                )
+            )
+        );
+
+        let matches = self.resources.find_images(vec![String::from("^terrain")]);
+        let textures: Vec<(String, DynamicImage)> = matches.iter().map(|x| {
+            let y = x.id();
+            let z = x.get();
+            (y.clone(), z.clone())
+        }).collect();
+
+        let atlas = TextureAtlas::new(
+            self,
+            textures,
+        ).expect("Couldn't create atlas");
         self.textures = Some(atlas);
 
         let air = BlockDescriptor::new(

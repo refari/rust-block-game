@@ -175,7 +175,6 @@ pub fn greedy(chunk: &Chunk, atlas: &TextureAtlas, block_registry: &BlockRegistr
                 if y + 1 < CHUNK_WIDTH && chunk.get_ref(x, y + 1, z).transparent {
                     let coords = atlas.coords_of(desc.top_texture.as_ref().unwrap());
                     if coords.is_ok() {
-                        println!("{:#?}", coords.as_ref().unwrap());
                         add_face(&mut new_vertices, &mut new_indices, (x as f32, y as f32, z as f32), Dir::Up, coords.unwrap());
                     }
                 }
@@ -183,7 +182,6 @@ pub fn greedy(chunk: &Chunk, atlas: &TextureAtlas, block_registry: &BlockRegistr
                 if x + 1 < CHUNK_WIDTH && chunk.get_ref(x + 1, y, z).transparent {
                     let coords = atlas.coords_of(desc.side_textures[3].as_ref().unwrap());
                     if coords.is_ok() {
-                        println!("{:#?}", coords.as_ref().unwrap());
                         add_face(&mut new_vertices, &mut new_indices, (x as f32, y as f32, z as f32), Dir::Left, coords.unwrap());
                     }
                 }
@@ -200,7 +198,6 @@ pub fn greedy(chunk: &Chunk, atlas: &TextureAtlas, block_registry: &BlockRegistr
                 if y - 1 > 0 && chunk.get_ref(x, y - 1, z).transparent {
                     let coords = atlas.coords_of(desc.bottom_texture.as_ref().unwrap());
                     if coords.is_ok() {
-                        println!("{:#?}", coords.as_ref().unwrap());
                         add_face(&mut new_vertices, &mut new_indices, (x as f32, y as f32, z as f32), Dir::Down, coords.unwrap());
                     }
                 }
