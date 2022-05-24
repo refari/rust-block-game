@@ -1,3 +1,6 @@
+// texture.rs
+// Texture utilities and structs
+
 use image::{DynamicImage, GenericImage, GenericImageView};
 use anyhow::*;
 use std::default::Default;

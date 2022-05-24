@@ -1,3 +1,5 @@
+// app.rs
+// Setup and run application
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},

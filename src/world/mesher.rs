@@ -1,3 +1,5 @@
+// mesher.rs
+// Naive mesh generator outputting texture coordinates and vertex normals.
 use std::cmp::{max, min};
 use std::collections::{HashMap, HashSet};
 use std::collections::btree_map::BTreeMap;

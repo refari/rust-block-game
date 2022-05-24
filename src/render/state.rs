@@ -1,3 +1,5 @@
+// state.rs
+// Application state
 extern crate winit;
 
 use std::borrow::Borrow;

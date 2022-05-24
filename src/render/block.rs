@@ -1,3 +1,5 @@
+// block.rs
+// Block utilities and structs
 use std::collections::HashMap;
 use std::hash::Hash;
 use block_mesh::{MergeVoxel, Voxel};

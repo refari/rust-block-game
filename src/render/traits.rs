@@ -1,4 +1,5 @@
-use wgpu::Buffer;
+// traits.rs
+// Miscellaneous and generic traits.
 
 /// Uniforms in WGPU must make a bind group layout, bind group, and a
 pub trait Uniform {
@@ -7,8 +8,8 @@ pub trait Uniform {
 }
 
 pub trait Renderable {
-    fn get_vertex_buffer(&self) -> Buffer;
-    fn get_index_buffer(&self) -> Buffer;
+    fn get_vertex_buffer(&self) -> wgpu::Buffer;
+    fn get_index_buffer(&self) -> wgpu::Buffer;
     fn pre_render(&self) -> Result<(), ()>;
     fn post_render(&self) -> Result<(), ()>;
     fn render(&self) -> Result<(), ()>;
