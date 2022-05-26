@@ -49,7 +49,7 @@ pub struct Texture {
 }
 
 // Each corner of a specific texture in the texture atlas.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct AtlasTexCoords {
     pub bl: [f32; 2],
     pub br: [f32; 2],
@@ -63,6 +63,7 @@ pub struct TextureAtlas {
     textures: Vec<(String, DynamicImage)>,
     width: usize,
     height: usize,
+    lookup_table: HashMap<String, AtlasTexCoords>
 }
 
 fn best_packing_size(num: usize) -> (u32, u32) {
@@ -76,6 +77,11 @@ impl TextureAtlas {
         println!("Best size for {} textures is {}, {}", textures.len(), w, h);
 
         let mut atlas = DynamicImage::new_rgba8(w*16, h*16);
+        let mut lookup_table = HashMap::new();
+
+        let sy = 1.0/w as f32;
+        let sx = 1.0/h as f32;
+
         'outer: for x in 0..w {
             for y in 0..h {
                 // stop adding textures once we run out of them
@@ -86,6 +92,20 @@ impl TextureAtlas {
 
                 let mut view = atlas.sub_image(x*16, y*16, w*16, h*16);
                 view.copy_from(&textures[i].1, 0, 0).expect("Failed to add image!");
+
+                let xf = x as f32 / w as f32;
+                let yf = y as f32 / w as f32;
+
+                lookup_table.insert(
+                    textures[i].0.clone(),
+                    AtlasTexCoords {
+                        tl: [xf,    yf   ],
+                        tr: [xf+sx, yf   ],
+                        bl: [xf,    yf+sy],
+                        br: [xf+sx, yf+sy],
+                    }
+                );
+
                 println!("Adding texture {} at coords ({}, {}) to ({}, {})", textures[i].0, (x as f32)/(w as f32), (y as f32)/(h as f32), (x as f32)/(w as f32)+1.0/(w as f32), (y as f32)/(h as f32)+1.0/(h as f32));
             }
         }
@@ -96,26 +116,13 @@ impl TextureAtlas {
             atlas,
             width: w as usize,
             height: h as usize,
+            lookup_table,
         })
     }
 
     pub fn coords_of(&self, id: &String) -> Result<AtlasTexCoords> {
-        for (i, tex) in self.textures.iter().enumerate() {
-            if tex.0 == *id {
-                let y = (i % self.width) as f32 / self.width as f32;
-                let x = ((i - y as usize)/self.width) as f32 / self.height as f32;
-
-                let sy = 1.0/self.width as f32;
-                let sx = 1.0/self.height as f32;
-
-
-                return std::result::Result::Ok(AtlasTexCoords {
-                    tl: [x,    y   ],
-                    tr: [x+sx, y   ],
-                    bl: [x,    y+sy],
-                    br: [x+sx, y+sy],
-                })
-            }
+        if let Some(coords) = self.lookup_table.get(id) {
+            return Ok(*coords);
         }
 
         println!("Tried to find nonexistent texture!");

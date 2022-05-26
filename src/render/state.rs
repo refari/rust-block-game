@@ -4,6 +4,8 @@ extern crate winit;
 
 use std::mem::size_of;
 use std::path::Path;
+use std::time::{Duration, Instant};
+use cgmath::Vector3;
 use image::DynamicImage;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use winit::{
@@ -24,8 +26,7 @@ use crate::render::block::{Block, BlockDescriptor, BlockRegistry};
 use rayon::prelude::*;
 use crate::core::resource::{ImageResource, Resource, ResourceManager, ResType, ShaderResource};
 
-use crate::world::{Chunk, CHUNK_WIDTH};
-use crate::world::mesher::greedy;
+use crate::world::{Chunk, World};
 
 pub struct State {
     surface: wgpu::Surface,
@@ -48,7 +49,7 @@ pub struct State {
     resources: ResourceManager,
     textures: Option<TextureAtlas>,
     blocks: BlockRegistry,
-    test_chunk: Option<Chunk>,
+    world: Option<World>,
 }
 
 impl State {
@@ -129,14 +130,14 @@ impl State {
             }
         );
 
-        let camera = Camera::new(
+        let _camera = Camera::new(
             // position the camera one unit up and 2 units back
             // +z is out of the screen
             (0.0, 1.0, 2.0).into(),
             // have it look at the origin
             (0.0, 0.0, 0.0).into(),
             // which way is "up"
-            cgmath::Vector3::unit_y(),
+            Vector3::unit_y(),
             config.width as f32 / config.height as f32,
             45.0,
             0.1,
@@ -260,27 +261,12 @@ impl State {
             resources,
             textures: None,
             blocks: BlockRegistry::default(),
-            test_chunk: None,
+            world: None,
         }
     }
 
     pub fn init(&mut self) {
         self.player = Some(Player::new(self.window_size, self));
-
-        // let textures: Vec<(String, DynamicImage)> = vec![
-        //     (
-        //         "grass_top".into(),
-        //         Texture::image_from_png(Path::new("res/images/grass/grass_top.png").into()).unwrap()
-        //     ),
-        //     (
-        //         "grass_bottom".into(),
-        //         Texture::image_from_png(Path::new("res/images/grass/grass_bottom.png").into()).unwrap()
-        //     ),
-        //     (
-        //         "grass_side".into(),
-        //         Texture::image_from_png(Path::new("res/images/grass/grass_side.png").into()).unwrap()
-        //     ),
-        // ];
 
         self.resources.add_resource(
             String::from("^terrain_grass_top"),
@@ -360,40 +346,39 @@ impl State {
         self.blocks.add_block(grass);
         self.blocks.add_block(dirt);
 
-        let mut test_chunk = Chunk::new();
+        self.world = Some(World::new());
 
-        let mut num_blocks = 0;
 
-        fn in_sphere(x: usize, y: usize, z: usize, r: f32) -> bool {
-            let radius = (((x as i32 - 8).pow(2) + (y as i32 - 8).pow(2) + (z as i32 - 8).pow(2)) as f32)
-                .sqrt();
-            radius < r
-        }
+        let mut _world = self.world.as_mut().unwrap();
 
-        for x in 0..CHUNK_WIDTH {
-            for y in 0..CHUNK_WIDTH {
-                for z in 0..CHUNK_WIDTH {
-                    test_chunk.set_block(x,y,z, if in_sphere(x,y,z, 7.0) {
-                        num_blocks += 1;
-                        if in_sphere(x,y+1,z, 7.0) {
-                            self.blocks.block("dirt")
-                        } else {
-                            self.blocks.block("grass")
-                        }
-                    } else {
-                        self.blocks.block("air")
-                    });
+        let before_generation = Instant::now();
+        for x in -2..2 {
+            for y in -2..2 {
+                for z in -2..2 {
+                    _world.get_chunk_or_generate(Vector3::new(x,y,z), &self.blocks);
                 }
             }
         }
+        let after_generation = Instant::now();
+        println!("Took {:?} to generate blocks", after_generation-before_generation);
 
-        // test_chunk.set_block(8,8,8, self.blocks.block("block"));
 
-        println!("Added {} solid blocks.", num_blocks);
+        let before_mesh_multi = Instant::now();
+        let (vertices, indices) = _world.make_mesh(
+            self.textures.as_ref().unwrap(),
+            &self.blocks
+        );
+        let after_mesh_multi = Instant::now();
+        println!("Took {:?} seconds to generate mesh (multi-threaded)", after_mesh_multi-before_mesh_multi);
 
-        // println!("{} quads", buffer.quads.num_quads());
 
-        let (vertices, indices) = greedy(&test_chunk, self.textures.as_ref().unwrap(), &self.blocks);
+        // let before_mesh_single = Instant::now();
+        // let (vertices, indices) = _world.make_mesh_single(
+        //     self.textures.as_ref().unwrap(),
+        //     &self.blocks
+        // );
+        // let after_mesh_single = Instant::now();
+        // println!("Took {:?} seconds to generate mesh (single-threaded)", after_mesh_single-before_mesh_single);
 
         let num_indices = indices.len();
         let num_vertices = vertices.len();

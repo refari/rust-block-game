@@ -17,6 +17,7 @@ pub struct App {
 }
 
 impl App {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         env_logger::init();
         let event_loop = EventLoop::new();
